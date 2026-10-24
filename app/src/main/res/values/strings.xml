@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">حماية</string>
+    <string name="a11y_desc">تحجب شاشات تغيير DNS الخاص وإيقاف أو حذف تطبيق حماية.</string>
+</resources>
