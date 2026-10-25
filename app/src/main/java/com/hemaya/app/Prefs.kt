@@ -15,8 +15,7 @@ object Prefs {
 
     fun enable(c: Context) {
         sp(c).edit().putBoolean("enabled", true).putLong("unlock_until", 0L).apply()
-        DnsWatcher.start(c)
-        KeepAliveService.start(c)
+        DnsGuard.enforce(c)
     }
 
     /** يوقف الحماية. لازم تُستدعى بعد التحقق من الرمز. */

@@ -46,8 +46,7 @@ class GuardAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        DnsWatcher.start(this)
-        if (Prefs.isProtecting(this)) KeepAliveService.start(this)
+        if (Prefs.isProtecting(this)) DnsGuard.enforce(this)
         handler.removeCallbacks(ticker)
         handler.post(ticker)
     }
