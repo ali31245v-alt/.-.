@@ -41,12 +41,14 @@ class GuardAccessibilityService : AccessibilityService() {
     }
 
     private fun tick() {
-        if (Prefs.isProtecting(this)) DnsGuard.enforce(applicationContext)
+        if (Prefs.isProtecting(this)) Watchdog.heal(applicationContext)
     }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        if (Prefs.isProtecting(this)) DnsGuard.enforce(this)
+        DnsWatcher.start(this)
+        WatchdogJobService.schedule(this)
+        if (Prefs.isProtecting(this)) KeepAliveService.start(this)
         handler.removeCallbacks(ticker)
         handler.post(ticker)
     }
@@ -105,7 +107,7 @@ class GuardAccessibilityService : AccessibilityService() {
         }
 
         // 2) شاشات حذف/إيقاف/تعطيل حماية: تحتاج الرمز
-        if (text.contains(APP) && hasAny(text, DANGER)) {
+        if (text.contains(APP) && (hasAny(text, DANGER) || (pkg in SETTINGS_PKGS && hasAny(text, APPINFO)))) {
             if (!Prefs.isUnlocked(this)) {
                 lastBlockReason = "طلب الرمز (حذف/إيقاف)"
                 showPin()
@@ -311,6 +313,7 @@ class GuardAccessibilityService : AccessibilityService() {
         )
 
         private val APP = norm("حماية")
+        private val APPINFO = listOf("app info", "معلومات التطبيق", "autostart", "التشغيل التلقائي").map(::norm)
 
         private val DNS_CLICK = listOf(
             "private dns", "dns الخاص", "dns خاص", "dns private"
