@@ -1,43 +1,59 @@
 package com.hemaya.app
 
 import android.content.Context
+import android.util.Base64
+import java.security.MessageDigest
+import java.security.SecureRandom
 
 object Prefs {
-    const val COOLDOWN_MS = 30L * 60L * 1000L
+    /** نافذة التنفيذ بعد إدخال الرمز الصحيح (للحذف أو التعطيل). */
+    const val UNLOCK_MS = 5L * 60L * 1000L
 
     private fun sp(c: Context) = c.getSharedPreferences("hemaya", Context.MODE_PRIVATE)
 
-    /** الحماية فعّالة؟ وإذا انتهت مهلة طلب الإيقاف تتوقف هنا. */
-    fun isProtecting(c: Context): Boolean {
-        val s = sp(c)
-        if (!s.getBoolean("enabled", false)) return false
-        val req = s.getLong("disable_req", 0L)
-        if (req > 0L && System.currentTimeMillis() - req >= COOLDOWN_MS) {
-            s.edit().putBoolean("enabled", false).putLong("disable_req", 0L).apply()
-            return false
-        }
-        return true
-    }
+    fun isProtecting(c: Context): Boolean = sp(c).getBoolean("enabled", false)
 
     fun enable(c: Context) {
-        sp(c).edit().putBoolean("enabled", true).putLong("disable_req", 0L).apply()
+        sp(c).edit().putBoolean("enabled", true).putLong("unlock_until", 0L).apply()
+        DnsWatcher.start(c)
+        KeepAliveService.start(c)
     }
 
-    fun requestDisable(c: Context) {
+    /** يوقف الحماية. لازم تُستدعى بعد التحقق من الرمز. */
+    fun disable(c: Context) {
+        sp(c).edit().putBoolean("enabled", false).putLong("unlock_until", 0L).apply()
+    }
+
+    fun hasPin(c: Context): Boolean = sp(c).getString("pin_hash", null) != null
+
+    fun setPin(c: Context, pin: String) {
+        val salt = ByteArray(16)
+        SecureRandom().nextBytes(salt)
+        val h = hash(salt, pin)
+        sp(c).edit()
+            .putString("pin_salt", Base64.encodeToString(salt, Base64.NO_WRAP))
+            .putString("pin_hash", Base64.encodeToString(h, Base64.NO_WRAP))
+            .apply()
+    }
+
+    fun checkPin(c: Context, pin: String): Boolean {
         val s = sp(c)
-        if (s.getLong("disable_req", 0L) == 0L) {
-            s.edit().putLong("disable_req", System.currentTimeMillis()).apply()
-        }
+        val saltS = s.getString("pin_salt", null) ?: return false
+        val hashS = s.getString("pin_hash", null) ?: return false
+        val h = hash(Base64.decode(saltS, Base64.NO_WRAP), pin)
+        return MessageDigest.isEqual(h, Base64.decode(hashS, Base64.NO_WRAP))
     }
 
-    fun cancelDisable(c: Context) {
-        sp(c).edit().putLong("disable_req", 0L).apply()
+    private fun hash(salt: ByteArray, pin: String): ByteArray {
+        val md = MessageDigest.getInstance("SHA-256")
+        md.update(salt)
+        return md.digest(pin.toByteArray(Charsets.UTF_8))
     }
 
-    /** المدة المتبقية لإيقاف الحماية، أو null إذا لم يُطلب الإيقاف. */
-    fun disableRemainingMs(c: Context): Long? {
-        val req = sp(c).getLong("disable_req", 0L)
-        if (req == 0L) return null
-        return (COOLDOWN_MS - (System.currentTimeMillis() - req)).coerceAtLeast(0L)
+    fun unlockFor(c: Context) {
+        sp(c).edit().putLong("unlock_until", System.currentTimeMillis() + UNLOCK_MS).apply()
     }
+
+    fun isUnlocked(c: Context): Boolean =
+        System.currentTimeMillis() < sp(c).getLong("unlock_until", 0L)
 }

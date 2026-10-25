@@ -24,21 +24,26 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,6 +56,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -94,10 +101,18 @@ private fun a11yEnabled(ctx: Context): Boolean {
     return s.contains(cn.flattenToString()) || s.contains(cn.flattenToShortString())
 }
 
+/** يحوّل الأرقام العربية-الهندية إلى لاتينية ويبقي الأرقام فقط. */
+private fun cleanDigits(v: String): String = v
+    .map { if (it in '٠'..'٩') '0' + (it - '٠') else it }
+    .filter { it in '0'..'9' }
+    .joinToString("")
+    .take(12)
+
 @Composable
 fun HemayaScreen(act: Activity) {
     var tick by remember { mutableIntStateOf(0) }
     var shizukuMsg by remember { mutableStateOf("") }
+    var dialog by remember { mutableStateOf("") }
     LaunchedEffect(Unit) {
         while (true) {
             delay(1000)
@@ -116,7 +131,7 @@ fun HemayaScreen(act: Activity) {
     val secure = DnsGuard.canWrite(act)
     val dnsOk = DnsGuard.isEnforced(act)
     val protecting = Prefs.isProtecting(act)
-    val remaining = Prefs.disableRemainingMs(act)
+    val hasPin = Prefs.hasPin(act)
 
     val lastAt = GuardAccessibilityService.lastEventAt
     val aliveText = if (lastAt == 0L) {
@@ -228,18 +243,28 @@ fun HemayaScreen(act: Activity) {
                 }
             }
 
+            StepCard(
+                "٥",
+                "رمز الحماية",
+                if (hasPin) "الرمز مضبوط. بيُطلب لإيقاف الحماية ولحذف التطبيق."
+                else "اضبط رمزاً من ٤ إلى ١٢ رقم. الأفضل يضبطه شخص تثق فيه.",
+                hasPin
+            ) {
+                if (!hasPin) {
+                    Primary("ضبط الرمز") { dialog = "set" }
+                } else if (!protecting) {
+                    Secondary("تغيير الرمز") { dialog = "change" }
+                }
+            }
+
             if (!protecting) {
-                Primary("تفعيل الحماية", enabled = a11y && adminOn) {
+                Primary("تفعيل الحماية", enabled = a11y && adminOn && hasPin) {
                     Prefs.enable(act)
                     DnsGuard.enforce(act)
                 }
-                if (!(a11y && adminOn)) Note("فعّل الخطوتين ١ و٢ أولاً.")
-            } else if (remaining == null) {
-                Primary("طلب إيقاف الحماية (بعد ٣٠ دقيقة)") { Prefs.requestDisable(act) }
+                if (!(a11y && adminOn && hasPin)) Note("فعّل الخطوات ١ و٢ و٥ أولاً.")
             } else {
-                val mins = (remaining / 60000L) + 1
-                Note("ستتوقف الحماية بعد حوالي $mins دقيقة.")
-                Primary("إلغاء طلب الإيقاف") { Prefs.cancelDisable(act) }
+                Primary("إيقاف الحماية (يحتاج الرمز)") { dialog = "disable" }
             }
 
             StepCard(
@@ -271,6 +296,103 @@ fun HemayaScreen(act: Activity) {
             }
         }
     }
+
+    when (dialog) {
+        "set" -> PinDialog(
+            "ضبط رمز الحماية",
+            listOf("الرمز (٤ إلى ١٢ رقم)", "تأكيد الرمز"),
+            { dialog = "" }
+        ) { v ->
+            if (v[0].length < 4) {
+                "الرمز لازم يكون ٤ أرقام على الأقل"
+            } else if (v[0] != v[1]) {
+                "الرمزان غير متطابقين"
+            } else {
+                Prefs.setPin(act, v[0])
+                dialog = ""
+                null
+            }
+        }
+
+        "change" -> PinDialog(
+            "تغيير الرمز",
+            listOf("الرمز الحالي", "الرمز الجديد", "تأكيد الرمز الجديد"),
+            { dialog = "" }
+        ) { v ->
+            if (!Prefs.checkPin(act, v[0])) {
+                "الرمز الحالي خاطئ"
+            } else if (v[1].length < 4) {
+                "الرمز الجديد لازم يكون ٤ أرقام على الأقل"
+            } else if (v[1] != v[2]) {
+                "الرمزان الجديدان غير متطابقين"
+            } else {
+                Prefs.setPin(act, v[1])
+                dialog = ""
+                null
+            }
+        }
+
+        "disable" -> PinDialog(
+            "إيقاف الحماية",
+            listOf("أدخل الرمز"),
+            { dialog = "" }
+        ) { v ->
+            if (!Prefs.checkPin(act, v[0])) {
+                "الرمز خاطئ"
+            } else {
+                Prefs.disable(act)
+                dialog = ""
+                null
+            }
+        }
+
+        else -> {}
+    }
+}
+
+@Composable
+private fun PinDialog(
+    title: String,
+    labels: List<String>,
+    onDismiss: () -> Unit,
+    onConfirm: (List<String>) -> String?
+) {
+    val values = remember {
+        mutableStateListOf<String>().apply { repeat(labels.size) { add("") } }
+    }
+    var err by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = CardBg,
+        titleContentColor = Color.White,
+        textContentColor = Color.White,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                labels.forEachIndexed { i, label ->
+                    OutlinedTextField(
+                        value = values[i],
+                        onValueChange = { v -> values[i] = cleanDigits(v) },
+                        label = { Text(label) },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)
+                    )
+                }
+                if (err.isNotEmpty()) Text(err, color = Bad, fontSize = 13.sp)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val r = onConfirm(values.toList())
+                if (r != null) err = r
+            }) { Text("تأكيد", color = Accent) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("إلغاء", color = Muted) }
+        }
+    )
 }
 
 @Composable
