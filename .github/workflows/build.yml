@@ -20,11 +20,10 @@ jobs:
           java-version: '17'
 
       - uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platform-tools
-            platforms;android-34
-            build-tools;34.0.0
+
+      - name: Install Android SDK packages
+        run: |
+          sdkmanager --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -35,9 +34,10 @@ jobs:
           java -version
           gradle --version
           echo "Android SDK: $ANDROID_HOME"
+          sdkmanager --list_installed
 
       - name: Build debug APK
-        run: gradle --no-daemon clean assembleDebug --stacktrace --info
+        run: gradle --no-daemon clean assembleDebug --stacktrace
 
       - name: Upload APK
         if: success()
