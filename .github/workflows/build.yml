@@ -4,6 +4,10 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  actions: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,16 +21,28 @@ jobs:
 
       - uses: android-actions/setup-android@v3
         with:
-          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+          packages: |
+            platform-tools
+            platforms;android-34
+            build-tools;34.0.0
 
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Build debug APK
-        run: gradle clean assembleDebug --stacktrace
+      - name: Show build environment
+        run: |
+          java -version
+          gradle --version
+          echo "Android SDK: $ANDROID_HOME"
 
-      - uses: actions/upload-artifact@v4
+      - name: Build debug APK
+        run: gradle --no-daemon clean assembleDebug --stacktrace --info
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
         with:
           name: hemaya-apk
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
