@@ -30,6 +30,7 @@ class GuardAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var lastBlock = 0L
     private var lastScan = 0L
+    private var lastWeb = 0L
     private var overlay: View? = null
     private var pinOverlay: View? = null
 
@@ -67,9 +68,21 @@ class GuardAccessibilityService : AccessibilityService() {
         val pkg = event.packageName?.toString() ?: return
         lastPkg = pkg
         lastEventAt = System.currentTimeMillis()
-        if (pkg == packageName || pkg !in WATCHED) return
+        if (pkg == packageName || (pkg !in WATCHED && pkg !in WebGuard.BROWSERS)) return
 
         val protecting = Prefs.isProtecting(this)
+        if (pkg in WebGuard.BROWSERS) {
+            val tw = System.currentTimeMillis()
+            if (protecting && tw - lastWeb > 300) {
+                lastWeb = tw
+                val r = rootInActiveWindow
+                if (r != null && r.packageName?.toString() == pkg) {
+                    val hit = WebGuard.matches(r)
+                    if (hit != null) block("محتوى محجوب: $hit")
+                }
+            }
+            return
+        }
         if (!protecting && !diag) return
 
         // 0) فحص فوري لنص الحدث نفسه قبل مسح الشاشة (شاشات DNS: حجب مطلق)
